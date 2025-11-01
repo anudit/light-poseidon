@@ -256,7 +256,7 @@ pub trait PoseidonBytesHasher {
     /// ```
     ///
     /// # Safety
-    ///   
+    ///
     /// Unlike the
     /// [`PrimeField::from_be_bytes_mod_order`](ark_ff::PrimeField::from_be_bytes_mod_order)
     /// and [`Field::from_random_bytes`](ark_ff::Field::from_random_bytes)
@@ -313,6 +313,7 @@ pub struct Poseidon<F: PrimeField> {
     params: PoseidonParameters<F>,
     domain_tag: F,
     state: Vec<F>,
+    temp_state: Vec<F>,
 }
 
 impl<F: PrimeField> Poseidon<F> {
@@ -330,6 +331,7 @@ impl<F: PrimeField> Poseidon<F> {
             domain_tag,
             params,
             state: Vec::with_capacity(width),
+            temp_state: Vec::with_capacity(width),
         }
     }
 
@@ -344,28 +346,29 @@ impl<F: PrimeField> Poseidon<F> {
     #[inline(always)]
     fn apply_sbox_full(&mut self) {
         self.state.iter_mut().for_each(|a| {
-            *a = a.pow([self.params.alpha]);
+            let a2 = a.square(); // a^2
+            let a4 = a2.square(); // a^4
+            *a = a4 * *a; // a^5 = a^4 * a
         });
     }
 
     #[inline(always)]
     fn apply_sbox_partial(&mut self) {
-        self.state[0] = self.state[0].pow([self.params.alpha]);
+        let a2 = self.state[0].square();
+        let a4 = a2.square();
+        self.state[0] = a4 * self.state[0];
     }
 
     #[inline(always)]
     fn apply_mds(&mut self) {
-        self.state = self
-            .state
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                self.state
-                    .iter()
-                    .enumerate()
-                    .fold(F::zero(), |acc, (j, a)| acc + *a * self.params.mds[i][j])
-            })
-            .collect();
+        self.temp_state.clear();
+        self.temp_state.extend((0..self.params.width).map(|i| {
+            self.state
+                .iter()
+                .enumerate()
+                .fold(F::zero(), |acc, (j, a)| acc + *a * self.params.mds[i][j])
+        }));
+        std::mem::swap(&mut self.state, &mut self.temp_state);
     }
 }
 
